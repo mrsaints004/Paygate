@@ -59,7 +59,7 @@ import {
 import { shortenHash } from "@/lib/utils";
 import { usePaymentEvents } from "@/hooks/use-transactions";
 import { useWithdrawals } from "@/hooks/use-withdrawals";
-import { PROTOCOL_FEE_RATE } from "@/lib/config";
+import { PROTOCOL_FEE_RATE, network } from "@/lib/config";
 
 function RevenueChart({ events }: { events: { amount_usdc: string; created_at: string }[] }) {
   const buckets = useMemo(() => {
@@ -166,7 +166,7 @@ function LiveFeed({ events }: { events: { endpoint: string; amount_usdc: string;
 type SortDirection = "default" | "asc" | "desc";
 type SortField = "amount" | "date";
 
-const EXPLORER_BASE = "https://testnet.arcscan.app";
+const EXPLORER_BASE = network.explorerBaseUrl;
 
 function nextSortDirection(current: SortDirection): SortDirection {
   if (current === "default") return "asc";
@@ -221,7 +221,7 @@ function CopyableCell({
       ) : (
         <span>{label ?? value}</span>
       )}
-      <Tooltip open={copied || undefined}>
+      <Tooltip open={copied ? true : undefined}>
         <TooltipTrigger asChild>
           <button
             onClick={handleCopy}

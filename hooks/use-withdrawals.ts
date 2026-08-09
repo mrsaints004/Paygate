@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { ConnectionStatus } from "@/hooks/use-transactions";
 
 export type Withdrawal = {
@@ -22,9 +21,7 @@ export function useWithdrawals() {
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("polling");
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  const [supabase] = useState(() => createClient());
 
   useEffect(() => {
     if (supabase) {
@@ -96,8 +93,6 @@ export function useWithdrawals() {
           }
         });
 
-      channelRef.current = channel;
-
       return () => {
         supabase.removeChannel(channel);
       };
@@ -131,7 +126,7 @@ export function useWithdrawals() {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [supabase]);
 
   return { withdrawals, loading, connectionStatus };
 }

@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type PaymentEvent = {
   id: string;
@@ -26,9 +25,7 @@ export function usePaymentEvents() {
   const [events, setEvents] = useState<PaymentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("polling");
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  const [supabase] = useState(() => createClient());
 
   useEffect(() => {
     // If Supabase is configured, use realtime
@@ -101,8 +98,6 @@ export function usePaymentEvents() {
           }
         });
 
-      channelRef.current = channel;
-
       return () => {
         supabase.removeChannel(channel);
       };
@@ -136,7 +131,7 @@ export function usePaymentEvents() {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [supabase]);
 
   return { events, loading, connectionStatus };
 }

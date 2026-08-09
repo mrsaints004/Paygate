@@ -58,7 +58,7 @@ async function deliverWebhook(
   const body = JSON.stringify(payload);
   const signature = signPayload(body, endpoint.secret);
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const res = await fetch(endpoint.url, {
         method: "POST",

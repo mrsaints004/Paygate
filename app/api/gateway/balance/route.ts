@@ -52,7 +52,7 @@ export async function GET() {
 
   try {
     const [gatewayResponse, walletBalance] = await Promise.all([
-      fetch(network.gatewayApiUrl, {
+      fetch(`${network.gatewayApiUrl}/balances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

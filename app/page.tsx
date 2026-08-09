@@ -11,7 +11,7 @@ import { LiveStats } from "@/components/live-stats";
 function ComparisonTable() {
   const rows = [
     { feature: "Min. transaction", paygate: "$0.000001", stripe: "$0.50+", crypto: "$0.01+", lightning: "$0.00001" },
-    { feature: "Fee per tx", paygate: "0%", stripe: "$0.30 + 2.9%", crypto: "$0.01-50+", lightning: "~0.1%" },
+    { feature: "Fee per tx", paygate: "1%", stripe: "$0.30 + 2.9%", crypto: "$0.01-50+", lightning: "~0.1%" },
     { feature: "Agent compatible", paygate: "Native", stripe: "No", crypto: "Manual", lightning: "Partial" },
     { feature: "Settlement speed", paygate: "<500ms", stripe: "2-7 days", crypto: "1-60 min", lightning: "<5s" },
     { feature: "Integration", paygate: "1 line", stripe: "SDK + dashboard", crypto: "Smart contract", lightning: "Node + channels" },
@@ -59,8 +59,8 @@ function PriceComparison() {
       </div>
       <div className="rounded-lg border border-primary/40 px-5 py-5">
         <p className="text-sm font-medium text-primary mb-2">PayGate</p>
-        <p className="text-3xl font-bold font-mono">$0.00</p>
-        <p className="text-sm text-muted-foreground mt-1">Gas-free via nanopayments</p>
+        <p className="text-3xl font-bold font-mono">1%</p>
+        <p className="text-sm text-muted-foreground mt-1">No gas fees, no minimums</p>
         <p className="text-xs text-muted-foreground mt-3">
           Minimum charge: <span className="font-mono font-semibold text-primary">$0.000001</span>
         </p>

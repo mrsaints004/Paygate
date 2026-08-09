@@ -58,7 +58,12 @@ export default function StatusPage() {
 
     // Check each premium endpoint returns 402
     ENDPOINTS.forEach((ep) => {
-      fetch(ep.path, { method: ep.method === "POST" ? "POST" : "GET" })
+      fetch(ep.path, {
+        method: ep.method,
+        ...(ep.method === "POST"
+          ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "health check" }) }
+          : {}),
+      })
         .then((res) => {
           setEndpointStatus((prev) => ({ ...prev, [ep.path]: res.status === 402 }));
         })

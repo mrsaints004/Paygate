@@ -16,7 +16,7 @@ const hexPrivateKey = z
   .transform((v) => v as `0x${string}`);
 
 const envSchema = z.object({
-  // Wallet config (required for payment processing at runtime, optional at build)
+  // Wallet config (required for payment processing at runtime)
   SELLER_ADDRESS: hexAddress.optional(),
   SELLER_PRIVATE_KEY: hexPrivateKey.optional(),
 

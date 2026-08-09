@@ -29,6 +29,17 @@ import {
   toHttpStatus,
 } from "@/lib/errors";
 
+export function getSellerAddress(): `0x${string}` {
+  const addr = process.env.SELLER_ADDRESS;
+  if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+    throw new PaymentValidationError(
+      "SELLER_ADDRESS is missing or invalid. Run `npm run generate-wallets` and set it in .env.local.",
+    );
+  }
+  return addr as `0x${string}`;
+}
+
+// Kept for backward compat — lazily resolved at request time
 export const sellerAddress = process.env.SELLER_ADDRESS as `0x${string}`;
 
 const CORS_HEADERS = {
@@ -89,7 +100,7 @@ function buildPaymentRequirements(priceUsdc: string) {
     network: network.networkId,
     asset: network.usdcAddress,
     amount: amount.toString(),
-    payTo: sellerAddress,
+    payTo: getSellerAddress(),
     maxTimeoutSeconds: 345600,
     extra: {
       name: "GatewayWalletBatched",

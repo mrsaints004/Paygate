@@ -13,14 +13,15 @@ type CheckResult = {
   message?: string;
 };
 
+const rpcClient = createPublicClient({ transport: http(network.rpcUrl) });
+
 export async function GET() {
   const checks: Record<string, CheckResult> = {};
 
   // 1. Arc Testnet RPC
   const rpcStart = Date.now();
   try {
-    const client = createPublicClient({ transport: http(network.rpcUrl) });
-    await client.getBlockNumber();
+    await rpcClient.getBlockNumber();
     checks.rpc = { status: "ok", latencyMs: Date.now() - rpcStart };
   } catch (err) {
     checks.rpc = {
@@ -58,7 +59,7 @@ export async function GET() {
   // 3. Circle Gateway reachability
   const gwStart = Date.now();
   try {
-    const res = await fetch(network.gatewayApiUrl, {
+    const res = await fetch(`${network.gatewayApiUrl}/balances`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -87,8 +88,7 @@ export async function GET() {
   const sellerAddress = process.env.SELLER_ADDRESS as `0x${string}` | undefined;
   if (sellerAddress) {
     try {
-      const client = createPublicClient({ transport: http(network.rpcUrl) });
-      const balance = await client.readContract({
+      const balance = await rpcClient.readContract({
         address: network.usdcAddress,
         abi: erc20Abi,
         functionName: "balanceOf",
@@ -111,5 +111,16 @@ export async function GET() {
     status: allOk ? "healthy" : anyError ? "degraded" : "unhealthy",
     checks,
     timestamp: new Date().toISOString(),
+  });
+}
+
+export function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
   });
 }

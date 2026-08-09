@@ -6,10 +6,7 @@
  */
 
 import { NextResponse } from "next/server";
-
-const GATEWAY_API = "https://gateway-api-testnet.circle.com/v1";
-const ARC_TESTNET_DOMAIN = 26;
-const ARCSCAN_BASE = "https://testnet.arcscan.app";
+import { network } from "@/lib/config";
 
 export async function GET() {
   const address = process.env.SELLER_ADDRESS;
@@ -22,13 +19,13 @@ export async function GET() {
 
   try {
     // Fetch transfer history from Gateway API
-    const response = await fetch(`${GATEWAY_API}/transfers`, {
+    const response = await fetch(`${network.gatewayApiUrl}/transfers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
         token: "USDC",
-        sources: [{ domain: ARC_TESTNET_DOMAIN, depositor: address }],
+        sources: [{ domain: network.gatewayDomain, depositor: address }],
       }),
     });
 
@@ -40,7 +37,7 @@ export async function GET() {
       return NextResponse.json({
         transfers: [],
         seller: address,
-        explorer: ARCSCAN_BASE,
+        explorer: network.explorerBaseUrl,
         note: "Gateway transfers API unavailable. Use /api/events for in-memory payment history.",
       });
     }
@@ -63,10 +60,10 @@ export async function GET() {
         timestamp: tx.timestamp ?? null,
         status: tx.status ?? "unknown",
         explorerUrl: tx.txHash
-          ? `${ARCSCAN_BASE}/tx/${tx.txHash}`
+          ? `${network.explorerBaseUrl}/tx/${tx.txHash}`
           : null,
         addressUrl: tx.from
-          ? `${ARCSCAN_BASE}/address/${tx.from}`
+          ? `${network.explorerBaseUrl}/address/${tx.from}`
           : null,
       }),
     );
@@ -75,8 +72,8 @@ export async function GET() {
       transfers,
       count: transfers.length,
       seller: address,
-      explorer: ARCSCAN_BASE,
-      sellerExplorerUrl: `${ARCSCAN_BASE}/address/${address}`,
+      explorer: network.explorerBaseUrl,
+      sellerExplorerUrl: `${network.explorerBaseUrl}/address/${address}`,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -85,7 +82,7 @@ export async function GET() {
     return NextResponse.json({
       transfers: [],
       seller: address,
-      explorer: ARCSCAN_BASE,
+      explorer: network.explorerBaseUrl,
       error: message,
     });
   }
