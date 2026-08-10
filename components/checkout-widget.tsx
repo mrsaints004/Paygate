@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   CheckCircle,
+  Clock,
   ExternalLink,
   Loader2,
   Lock,
@@ -15,6 +16,13 @@ import {
 import { network } from "@/lib/config";
 
 type CheckoutState = "idle" | "loading" | "paying" | "success" | "error";
+
+type TransferStatus = "received" | "batched" | "confirmed" | "completed" | "failed" | "unknown";
+
+type TransferInfo = {
+  status: TransferStatus;
+  onchainTx?: string;
+};
 
 type PaymentResult = {
   data: Record<string, unknown>;
@@ -43,6 +51,54 @@ export function CheckoutWidget({
   const [price, setPrice] = useState<string | null>(null);
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [transferInfo, setTransferInfo] = useState<TransferInfo | null>(null);
+
+  const pollTransferStatus = useCallback(async (batchId: string) => {
+    try {
+      const res = await fetch(`/api/transfers?id=${encodeURIComponent(batchId)}`);
+      if (!res.ok) return;
+      const { transfer } = await res.json();
+      if (!transfer) return;
+
+      const info: TransferInfo = {
+        status: transfer.status ?? "unknown",
+        onchainTx: transfer.txHash ?? undefined,
+      };
+      setTransferInfo(info);
+
+      // Stop polling once completed or failed
+      return info.status === "completed" || info.status === "failed";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Poll for on-chain confirmation after payment succeeds
+  useEffect(() => {
+    if (state !== "success" || !result?.transaction) return;
+    // Only poll for batch IDs (UUIDs), not 0x hashes
+    if (result.transaction.startsWith("0x")) return;
+
+    let cancelled = false;
+    let attempt = 0;
+
+    const poll = async () => {
+      if (cancelled) return;
+      const done = await pollTransferStatus(result.transaction!);
+      if (cancelled || done) return;
+      attempt++;
+      // Poll every 3s for first 10 attempts, then every 10s
+      const delay = attempt < 10 ? 3000 : 10000;
+      setTimeout(poll, delay);
+    };
+
+    // Start polling after 1s
+    const timer = setTimeout(poll, 1000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [state, result?.transaction, pollTransferStatus]);
 
   async function checkPrice() {
     setState("loading");
@@ -168,9 +224,50 @@ export function CheckoutWidget({
                   View on ArcScan: {result.transaction.slice(0, 10)}...{result.transaction.slice(-6)}
                 </a>
               ) : (
-                <p className="text-xs text-muted-foreground font-mono mb-3">
-                  Batch ID: {result.transaction.slice(0, 8)}...{result.transaction.slice(-6)}
-                </p>
+                <div className="mb-3 space-y-1.5">
+                  <p className="text-xs text-muted-foreground font-mono">
+                    Batch ID: {result.transaction.slice(0, 8)}...{result.transaction.slice(-6)}
+                  </p>
+                  {transferInfo ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+                        transferInfo.status === "completed" ? "text-green-500" :
+                        transferInfo.status === "failed" ? "text-destructive" :
+                        "text-yellow-500"
+                      }`}>
+                        {transferInfo.status === "completed" ? (
+                          <CheckCircle size={10} />
+                        ) : transferInfo.status === "failed" ? (
+                          <X size={10} />
+                        ) : (
+                          <Clock size={10} className="animate-pulse" />
+                        )}
+                        {transferInfo.status === "received" && "Received by Gateway"}
+                        {transferInfo.status === "batched" && "Batched — awaiting settlement"}
+                        {transferInfo.status === "confirmed" && "Confirmed on-chain"}
+                        {transferInfo.status === "completed" && "Settled on-chain"}
+                        {transferInfo.status === "failed" && "Settlement failed"}
+                        {transferInfo.status === "unknown" && "Checking status..."}
+                      </span>
+                      {transferInfo.onchainTx && (
+                        <a
+                          href={`${network.explorerBaseUrl}/tx/${transferInfo.onchainTx}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ExternalLink size={10} />
+                          View on ArcScan
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 size={10} className="animate-spin" />
+                      Checking on-chain status...
+                    </span>
+                  )}
+                </div>
               )
             )}
             {result.payer && (

@@ -45,7 +45,7 @@ async function getOrCreateGatewayClient() {
       // Deposit USDC into Gateway if balance is low
       try {
         const balances = await client.getBalances();
-        const MIN_BALANCE = 100_000n; // 0.1 USDC
+        const MIN_BALANCE = BigInt(100_000); // 0.1 USDC
         if (balances.gateway.available < MIN_BALANCE) {
           const depositAmount = "0.5";
           logger.info("checkout", `Depositing ${depositAmount} USDC into Gateway...`);
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     // Check balance before paying — re-deposit if too low
     try {
       const balances = await gateway.getBalances();
-      if (balances.gateway.available < 100_000n) {
+      if (balances.gateway.available < BigInt(100_000)) {
         logger.info("checkout", "Gateway balance low, re-depositing...");
         gatewayClientPromise = null;
         await getOrCreateGatewayClient();
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: result.response,
+      data: result.data,
       amount: result.formattedAmount,
       transaction: result.transaction,
       payer: process.env.BUYER_ADDRESS,

@@ -114,7 +114,7 @@ async function getSupportedKinds(): Promise<SupportedKind[]> {
     return cachedSupportedKinds;
   }
   const supported = await facilitator.getSupported();
-  cachedSupportedKinds = (supported as { kinds: SupportedKind[] }).kinds;
+  cachedSupportedKinds = (supported as unknown as { kinds: SupportedKind[] }).kinds;
   logger.info("x402", "Fetched supported kinds from Gateway API", {
     count: cachedSupportedKinds.length,
     networks: cachedSupportedKinds.map((k: SupportedKind) => k.network),

@@ -63,7 +63,7 @@ async function getOrCreateGatewayClient() {
       // Check balance first — skip deposit if already funded.
       try {
         const balances = await client.getBalances();
-        const MIN_BALANCE = 100_000n; // 0.1 USDC in 6-decimal units
+        const MIN_BALANCE = BigInt(100_000); // 0.1 USDC in 6-decimal units
         if (balances.gateway.available < MIN_BALANCE) {
           // Deposit a small amount for checkout demos
           const depositAmount = "0.5";
