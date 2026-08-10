@@ -49,7 +49,9 @@ const CORS_HEADERS = {
   "Access-Control-Expose-Headers": "PAYMENT-REQUIRED, PAYMENT-RESPONSE",
 };
 
-const facilitator = new BatchFacilitatorClient();
+const facilitator = new BatchFacilitatorClient({
+  url: network.gatewayApiUrl.replace(/\/v1\/?$/, ""),
+});
 
 // Supabase is optional — payment flow works without it, events just log to console
 let supabase: SupabaseClient | null = null;
@@ -76,7 +78,7 @@ const priceSchema = z
 interface PaymentPayload {
   x402Version: number;
   resource?: { url: string; description: string; mimeType: string };
-  accepted?: Record<string, unknown>;
+  accepted?: Record<string, unknown> & { network?: string };
   payload: {
     signature?: string;
     authorization?: Record<string, unknown>;
@@ -92,20 +94,82 @@ interface SettlementResult {
   payer?: string;
 }
 
-function buildPaymentRequirements(priceUsdc: string) {
+interface SupportedKind {
+  network: string;
+  asset?: string;
+  extra?: {
+    name?: string;
+    version?: string;
+    verifyingContract?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+// Cache supported kinds from the Gateway API (same as official middleware)
+let cachedSupportedKinds: SupportedKind[] | null = null;
+
+async function getSupportedKinds(): Promise<SupportedKind[]> {
+  if (cachedSupportedKinds) {
+    return cachedSupportedKinds;
+  }
+  const supported = await facilitator.getSupported();
+  cachedSupportedKinds = (supported as { kinds: SupportedKind[] }).kinds;
+  logger.info("x402", "Fetched supported kinds from Gateway API", {
+    count: cachedSupportedKinds.length,
+    networks: cachedSupportedKinds.map((k: SupportedKind) => k.network),
+  });
+  return cachedSupportedKinds;
+}
+
+function getUsdcAddress(kind: SupportedKind): string {
+  // The kind.asset from the Gateway API is the canonical USDC address
+  return kind.asset ?? network.usdcAddress;
+}
+
+async function buildPaymentRequirements(priceUsdc: string, targetNetwork?: string) {
   const amount = Math.round(parseFloat(priceUsdc) * 1_000_000);
+  const kinds = await getSupportedKinds();
+  const expectedNetwork = targetNetwork ?? network.networkId;
+
+  // Find the matching kind from the Gateway API (same logic as official middleware)
+  const kind = kinds.find(
+    (k) =>
+      k.network === expectedNetwork &&
+      k.extra?.name === "GatewayWalletBatched" &&
+      k.extra?.version === "1" &&
+      typeof k.extra?.verifyingContract === "string",
+  );
+
+  if (!kind || !kind.extra?.verifyingContract) {
+    // Fallback to hardcoded values if Gateway API doesn't return our network
+    logger.warn("x402", `No Gateway kind found for ${expectedNetwork}, using hardcoded config`);
+    return {
+      scheme: "exact" as const,
+      network: network.networkId,
+      asset: network.usdcAddress,
+      amount: amount.toString(),
+      payTo: getSellerAddress(),
+      maxTimeoutSeconds: 604900,
+      extra: {
+        name: "GatewayWalletBatched",
+        version: "1",
+        verifyingContract: network.gatewayWallet,
+      },
+    };
+  }
 
   return {
     scheme: "exact" as const,
-    network: network.networkId,
-    asset: network.usdcAddress,
+    network: kind.network,
+    asset: getUsdcAddress(kind),
     amount: amount.toString(),
     payTo: getSellerAddress(),
-    maxTimeoutSeconds: 345600,
+    maxTimeoutSeconds: 604900,
     extra: {
       name: "GatewayWalletBatched",
       version: "1",
-      verifyingContract: network.gatewayWallet,
+      verifyingContract: kind.extra.verifyingContract,
     },
   };
 }
@@ -133,6 +197,10 @@ async function insertWithRetry(
  *
  * Price is validated at initialization time via Zod, so malformed prices
  * fail immediately rather than at request time.
+ *
+ * Payment requirements are fetched from the Gateway API (via
+ * facilitator.getSupported()) to ensure they match exactly what the
+ * Gateway expects for verification.
  */
 export function withGateway(
   handler: (req: NextRequest) => Promise<NextResponse>,
@@ -147,14 +215,24 @@ export function withGateway(
     );
   }
 
-  const requirements = buildPaymentRequirements(parsed.data);
-
   return async (req: NextRequest) => {
     const paymentSignature = req.headers.get("payment-signature");
 
     // No payment — return 402 with Gateway batching payment requirements
     if (!paymentSignature) {
       logger.info("x402", `402 Payment Required: ${endpoint}`);
+
+      let requirements;
+      try {
+        requirements = await buildPaymentRequirements(parsed.data);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("x402", `Failed to build payment requirements: ${msg}`);
+        return NextResponse.json(
+          { error: "Payment service temporarily unavailable" },
+          { status: 503, headers: CORS_HEADERS },
+        );
+      }
 
       const paymentRequired = {
         x402Version: 2,
@@ -199,6 +277,17 @@ export function withGateway(
     }
 
     try {
+      // Build fresh requirements from Gateway API for the accepted network
+      // (same pattern as the official createGatewayMiddleware)
+      const acceptedNetwork = paymentPayload.accepted?.network ?? network.networkId;
+      let requirements;
+      try {
+        requirements = await buildPaymentRequirements(parsed.data, acceptedNetwork);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new GatewayError(`Failed to build requirements: ${msg}`);
+      }
+
       let verifyResult: { isValid: boolean; invalidReason?: string; payer?: string };
       try {
         verifyResult = await facilitator.verify(paymentPayload, requirements);
@@ -208,6 +297,10 @@ export function withGateway(
       }
 
       if (!verifyResult.isValid) {
+        logger.error("x402", `Payment verification failed for ${endpoint}`, {
+          reason: verifyResult.invalidReason,
+          payer: verifyResult.payer,
+        });
         return NextResponse.json(
           {
             error: "Payment verification failed",

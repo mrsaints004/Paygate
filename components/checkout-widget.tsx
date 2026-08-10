@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { network } from "@/lib/config";
 
-type CheckoutState = "idle" | "loading" | "signing" | "settling" | "success" | "error";
+type CheckoutState = "idle" | "loading" | "paying" | "success" | "error";
 
 type PaymentResult = {
   data: Record<string, unknown>;
@@ -41,11 +41,10 @@ export function CheckoutWidget({
 }: CheckoutWidgetProps) {
   const [state, setState] = useState<CheckoutState>("idle");
   const [price, setPrice] = useState<string | null>(null);
-  const [paymentRequired, setPaymentRequired] = useState<Record<string, unknown> | null>(null);
   const [result, setResult] = useState<PaymentResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function initiate() {
+  async function checkPrice() {
     setState("loading");
     setError(null);
     try {
@@ -57,6 +56,7 @@ export function CheckoutWidget({
       });
 
       if (res.status !== 402) {
+        // Endpoint didn't require payment — show result directly
         const data = await res.json();
         setResult({ data, amount: "0", network: "" });
         setState("success");
@@ -71,7 +71,6 @@ export function CheckoutWidget({
       }
 
       const requirements = JSON.parse(atob(paymentHeader));
-      setPaymentRequired(requirements);
       const accepts = requirements.accepts?.[0];
       if (accepts) {
         const amountUsdc = (Number(accepts.amount) / 1e6).toFixed(6);
@@ -85,68 +84,31 @@ export function CheckoutWidget({
     }
   }
 
-  async function makeRealPayment() {
-    if (!paymentRequired) {
-      setError("No payment requirements available");
-      setState("error");
-      return;
-    }
-
-    setState("signing");
+  async function makePayment() {
+    setState("paying");
     setError(null);
 
     try {
-      // Sign payment server-side (private key never touches browser)
-      const signRes = await fetch("/api/checkout/sign", {
+      // Full payment handled server-side via GatewayClient.pay()
+      // Same flow as the autonomous agent — no format mismatch
+      const res = await fetch("/api/checkout/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentRequired }),
+        body: JSON.stringify({ endpoint, method, body }),
       });
 
-      if (!signRes.ok) {
-        const errData = await signRes.json().catch(() => ({}));
-        setError(errData.error ?? `Signing failed with status ${signRes.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.error ?? `Payment failed with status ${res.status}`);
         setState("error");
         return;
       }
 
-      const { paymentSignature } = await signRes.json();
+      const { data, amount, transaction, payer } = await res.json();
 
-      setState("settling");
-
-      // Retry the request with the payment signature
-      const paidRes = await fetch(endpoint, {
-        method,
-        headers: {
-          ...(body ? { "Content-Type": "application/json" } : {}),
-          "payment-signature": paymentSignature,
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
-
-      if (!paidRes.ok) {
-        const errData = await paidRes.json().catch(() => ({}));
-        setError(errData.error ?? `Payment failed with status ${paidRes.status}`);
-        setState("error");
-        return;
-      }
-
-      // Parse settlement response
-      const paymentResponseHeader = paidRes.headers.get("PAYMENT-RESPONSE");
-      let transaction: string | undefined;
-      let payer: string | undefined;
-      if (paymentResponseHeader) {
-        try {
-          const settlementInfo = JSON.parse(atob(paymentResponseHeader));
-          transaction = settlementInfo.transaction;
-          payer = settlementInfo.payer;
-        } catch { /* ignore parse errors */ }
-      }
-
-      const data = await paidRes.json();
       const paymentResult: PaymentResult = {
         data,
-        amount: price?.replace("$", "") ?? "0.001",
+        amount: amount ?? price?.replace("$", "") ?? "0",
         network: network.networkId,
         transaction,
         payer,
@@ -163,14 +125,14 @@ export function CheckoutWidget({
 
   function retry() {
     setError(null);
-    if (paymentRequired) {
-      makeRealPayment();
+    if (price) {
+      makePayment();
     } else {
       setState("idle");
     }
   }
 
-  const isProcessing = state === "loading" || state === "signing" || state === "settling";
+  const isProcessing = state === "loading" || state === "paying";
 
   return (
     <div className="w-full max-w-sm mx-auto rounded-lg border overflow-hidden">
@@ -195,15 +157,21 @@ export function CheckoutWidget({
               {result.amount} USDC settled on {network.label}
             </p>
             {result.transaction && (
-              <a
-                href={`${network.explorerBaseUrl}/tx/${result.transaction}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mb-3"
-              >
-                <ExternalLink size={10} />
-                View on ArcScan: {result.transaction.slice(0, 10)}...{result.transaction.slice(-6)}
-              </a>
+              result.transaction.startsWith("0x") ? (
+                <a
+                  href={`${network.explorerBaseUrl}/tx/${result.transaction}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline mb-3"
+                >
+                  <ExternalLink size={10} />
+                  View on ArcScan: {result.transaction.slice(0, 10)}...{result.transaction.slice(-6)}
+                </a>
+              ) : (
+                <p className="text-xs text-muted-foreground font-mono mb-3">
+                  Batch ID: {result.transaction.slice(0, 8)}...{result.transaction.slice(-6)}
+                </p>
+              )
             )}
             {result.payer && (
               <p className="text-xs text-muted-foreground font-mono">
@@ -239,7 +207,7 @@ export function CheckoutWidget({
             </div>
 
             {!price ? (
-              <Button className="w-full gap-2" onClick={initiate} disabled={isProcessing}>
+              <Button className="w-full gap-2" onClick={checkPrice} disabled={isProcessing}>
                 {isProcessing ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
@@ -248,17 +216,15 @@ export function CheckoutWidget({
                 Check Price
               </Button>
             ) : (
-              <Button className="w-full gap-2" onClick={makeRealPayment} disabled={isProcessing}>
+              <Button className="w-full gap-2" onClick={makePayment} disabled={isProcessing}>
                 {isProcessing ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
                   <ShieldCheck size={16} />
                 )}
-                {state === "signing"
-                  ? "Signing EIP-3009..."
-                  : state === "settling"
-                    ? `Settling on ${network.label}...`
-                    : `Pay ${price} USDC`}
+                {state === "paying"
+                  ? `Settling on ${network.label}...`
+                  : `Pay ${price} USDC`}
               </Button>
             )}
 
